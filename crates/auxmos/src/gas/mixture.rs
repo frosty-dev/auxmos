@@ -4,17 +4,17 @@ use itertools::{
 	Itertools,
 };
 
-use std::sync::atomic::Ordering::Relaxed;
-
 use atomic_float::AtomicF32;
 
 use tinyvec::TinyVec;
 
-use crate::reaction::ReactionIdentifier;
-
 use super::{
 	constants::*, gas_visibility, total_num_gases, with_reactions, with_specific_heats, GasIDX,
 };
+
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+use std::collections::BTreeMap;
 
 type SpecificFireInfo = (usize, f32, f32);
 
@@ -36,6 +36,8 @@ impl GasCache {
 	pub fn invalidate(&self) {
 		self.0.store(f32::NAN, Relaxed);
 	}
+	//cannot fix this, because f is FnMut and then() takes FnOnce
+	#[allow(clippy::redundant_closure)]
 	pub fn get_or_else(&self, mut f: impl FnMut() -> f32) -> f32 {
 		match self
 			.0
@@ -48,6 +50,13 @@ impl GasCache {
 	pub fn set(&self, v: f32) {
 		self.0.store(v, Relaxed);
 	}
+}
+
+pub fn visibility_step(gas_amt: f32) -> u32 {
+	(gas_amt / MOLES_GAS_VISIBLE_STEP)
+		.ceil()
+		.min(FACTOR_GAS_VISIBLE_MAX)
+		.max(1.0) as u32
 }
 
 /// The data structure representing a Space Station 13 gas mixture.
@@ -300,12 +309,9 @@ impl Mixture {
 		if ratio >= 1.0 {
 			ratio = 1.0;
 		}
-		let orig_temp = self.temperature;
 		into.copy_from_mutable(self);
 		into.multiply(ratio);
 		self.multiply(1.0 - ratio);
-		self.temperature = orig_temp;
-		into.temperature = orig_temp;
 	}
 	/// As `remove_ratio_into`, but a raw number of moles instead of a ratio.
 	pub fn remove_into(&mut self, amount: f32, into: &mut Self) {
@@ -446,18 +452,34 @@ impl Mixture {
 			self.garbage_collect();
 		}
 	}
+	pub fn can_react_with_reactions(
+		&self,
+		reactions: &BTreeMap<i32, crate::reaction::Reaction>,
+	) -> bool {
+		//priorities are inversed because fuck you
+		reactions
+			.values()
+			.rev()
+			.any(|reaction| reaction.check_conditions(self))
+	}
 	/// Checks if the proc can react with any reactions.
 	pub fn can_react(&self) -> bool {
-		with_reactions(|reactions| reactions.iter().any(|r| r.check_conditions(self)))
+		with_reactions(|reactions| self.can_react_with_reactions(reactions))
+	}
+	pub fn all_reactable_with_slice(
+		&self,
+		reactions: &BTreeMap<i32, crate::reaction::Reaction>,
+	) -> TinyVec<[u64; MAX_REACTION_TINYVEC_SIZE]> {
+		//priorities are inversed because fuck you
+		reactions
+			.values()
+			.rev()
+			.filter_map(|thin| thin.check_conditions(self).then(|| thin.get_id()))
+			.collect()
 	}
 	/// Gets all of the reactions this mix should do.
-	pub fn all_reactable(&self) -> TinyVec<[ReactionIdentifier; MAX_REACTION_TINYVEC_SIZE]> {
-		with_reactions(|reactions| {
-			reactions
-				.iter()
-				.filter_map(|r| r.check_conditions(self).then(|| r.get_id()))
-				.collect()
-		})
+	pub fn all_reactable(&self) -> TinyVec<[u64; MAX_REACTION_TINYVEC_SIZE]> {
+		with_reactions(|reactions| self.all_reactable_with_slice(reactions))
 	}
 	/// Returns a tuple with oxidation power and fuel amount of this gas mixture.
 	pub fn get_burnability(&self) -> (f32, f32) {
@@ -552,19 +574,29 @@ impl Mixture {
 	pub fn vis_hash(&self, gas_visibility: &[Option<f32>]) -> u64 {
 		use std::hash::Hasher;
 		let mut hasher: ahash::AHasher = ahash::AHasher::default();
-		for (i, gas) in self.enumerate() {
-			if let Some(amt) = unsafe { gas_visibility.get_unchecked(i) }.filter(|&amt| gas >= amt)
+		for (i, gas_amt) in self.enumerate() {
+			if unsafe { gas_visibility.get_unchecked(i) }
+				.filter(|&amt| gas_amt > amt)
+				.is_some()
 			{
 				hasher.write_usize(i);
-				hasher.write_usize((FACTOR_GAS_VISIBLE_MAX).min((gas / amt).ceil()) as usize);
+				hasher.write_usize(visibility_step(gas_amt) as usize)
 			}
 		}
 		hasher.finish()
 	}
-	/// Compares the current vis hash to the provided one; returns `Some(new_hash)` if they're different, otherwise None.
-	pub fn vis_hash_changed(&self, gas_visibility: &[Option<f32>], prev_hash: u64) -> Option<u64> {
+	/// Compares the current vis hash to the provided one; returns true if they are
+	pub fn vis_hash_changed(
+		&self,
+		gas_visibility: &[Option<f32>],
+		hash_holder: &AtomicU64,
+	) -> bool {
 		let cur_hash = self.vis_hash(gas_visibility);
-		(cur_hash != prev_hash).then(|| cur_hash)
+		hash_holder
+			.fetch_update(Relaxed, Relaxed, |item| {
+				(item != cur_hash).then(|| cur_hash)
+			})
+			.is_ok()
 	}
 	// Removes all redundant zeroes from the gas mixture.
 	pub fn garbage_collect(&mut self) {
@@ -625,6 +657,20 @@ impl<'a> Mul<f32> for &'a Mixture {
 		ret
 	}
 }
+
+impl PartialEq for Mixture {
+	fn eq(&self, other: &Self) -> bool {
+		self.moles.len() == other.moles.len()
+			&& self.temperature == other.temperature
+			&& self
+				.moles
+				.iter()
+				.zip(other.moles.iter())
+				.all(|(a, b)| (a - b).abs() < GAS_MIN_MOLES)
+	}
+}
+
+impl Eq for Mixture {}
 
 #[cfg(test)]
 mod tests {

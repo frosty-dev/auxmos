@@ -1,29 +1,30 @@
-pub mod gas;
+mod gas;
 
 #[cfg(feature = "turf_processing")]
-pub mod turfs;
+mod turfs;
 
-pub mod reaction;
+mod reaction;
 
-pub mod callbacks;
+mod parser;
 
 use auxtools::{byond_string, hook, inventory, runtime, List, Value};
 
 use auxcleanup::{datum_del, DelDatumFunc};
 
 use gas::{
-	amt_gases, constants, gas_idx_from_value, gas_idx_to_id, tot_gases, types, with_gas_info,
-	with_mix, with_mix_mut, with_mixes, with_mixes_custom, with_mixes_mut, GasArena, Mixture,
+	amt_gases, constants, gas_idx_from_string, gas_idx_from_value, gas_idx_to_id, tot_gases, types,
+	with_gas_info, with_mix, with_mix_mut, with_mixes, with_mixes_custom, with_mixes_mut, GasArena,
+	Mixture,
 };
 
 use reaction::react_by_id;
 
-use gas::constants::{GAS_MIN_MOLES, MINIMUM_MOLES_DELTA_TO_MOVE, STOP_REACTIONS};
+use gas::constants::{ReactionReturn, GAS_MIN_MOLES, MINIMUM_MOLES_DELTA_TO_MOVE};
 
 /// Args: (ms). Runs callbacks until time limit is reached. If time limit is omitted, runs all callbacks.
 #[hook("/proc/process_atmos_callbacks")]
 fn _atmos_callback_handle() {
-	auxcallback::callback_processing_hook(args)
+	auxcallback::callback_processing_hook(&mut args)
 }
 
 /// Fills in the first unused slot in the gas mixtures vector, or adds another one, then sets the argument Value to point to it.
@@ -448,17 +449,19 @@ fn _compare_hook(other: Value) {
 /// Args: (holder). Runs all reactions on this gas mixture. Holder is used by the reactions, and can be any arbitrary datum or null.
 #[hook("/datum/gas_mixture/proc/react")]
 fn _react_hook(holder: Value) {
-	let mut ret: i32 = 0;
+	let mut ret = ReactionReturn::NO_REACTION;
 	let reactions = with_mix(src, |mix| Ok(mix.all_reactable()))?;
 	for reaction in reactions {
-		ret |= react_by_id(&reaction, src, holder)?
-			.as_number()
-			.unwrap_or_default() as i32;
-		if ret & STOP_REACTIONS == STOP_REACTIONS {
-			return Ok(Value::from(ret as f32));
+		ret |= ReactionReturn::from_bits_truncate(
+			react_by_id(reaction, src, holder)?
+				.as_number()
+				.unwrap_or_default() as u32,
+		);
+		if ret.contains(ReactionReturn::STOP_REACTIONS) {
+			return Ok(Value::from(ret.bits() as f32));
 		}
 	}
-	Ok(Value::from(ret as f32))
+	Ok(Value::from(ret.bits() as f32))
 }
 
 /// Args: (heat). Adds a given amount of heat to the mixture, i.e. in joules taking into account capacity.
@@ -653,4 +656,33 @@ fn _hook_amt_gas_mixes() {
 #[hook("/datum/controller/subsystem/air/proc/get_max_gas_mixes")]
 fn _hook_max_gas_mixes() {
 	Ok(Value::from(tot_gases() as f32))
+}
+
+#[hook("/datum/gas_mixture/proc/__auxtools_parse_gas_string")]
+fn _parse_gas_string(string: Value) {
+	let actual_string = string.as_string()?;
+
+	let (_, vec) = parser::parse_gas_string(&actual_string)
+		.map_err(|_| runtime!(format!("Failed to parse gas string: {}", actual_string)))?;
+
+	with_mix_mut(src, move |air| {
+		air.clear();
+		for (gas, moles) in vec.iter() {
+			if let Ok(idx) = gas_idx_from_string(gas) {
+				if (*moles).is_normal() && *moles > 0.0 {
+					air.set_moles(idx, *moles)
+				}
+			} else if gas.contains("TEMP") {
+				let mut checked_temp = *moles;
+				if !checked_temp.is_normal() || checked_temp < constants::TCMB {
+					checked_temp = constants::TCMB
+				}
+				air.set_temperature(checked_temp)
+			} else {
+				return Err(runtime!(format!("Unknown gas id: {}", gas)));
+			}
+		}
+		Ok(())
+	})?;
+	Ok(Value::from(true))
 }
