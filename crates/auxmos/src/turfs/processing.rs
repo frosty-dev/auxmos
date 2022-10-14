@@ -771,7 +771,7 @@ fn post_process() {
 					update_visuals(turf)?;
 				}
 			}
-			Ok(())
+			Ok(Value::null())
 		})));
 	});
 	for (k, v) in receiver.drain() {
@@ -965,7 +965,7 @@ fn _process_heat_start() -> Result<(), String> {
 							drop(sender.try_send(Box::new(move || {
 								let turf = unsafe { Value::turf_by_id_unchecked(i) };
 								turf.set(byond_string!("to_be_destroyed"), 1.0)?;
-								Ok(())
+								Ok(Value::null())
 							})));
 						}
 					});
