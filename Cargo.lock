@@ -607,11 +607,10 @@ dependencies = [
 
 [[package]]
 name = "petgraph"
-version = "0.6.0"
-source = "git+https://github.com/jupyterkat/petgraph#8eb797f38c620bbaa616f5a1b7322f4f5dbe599d"
+version = "0.6.2"
+source = "git+https://github.com/jupyterkat/petgraph?rev=801ec825c2529283bd259295efc00dc2916dad30#801ec825c2529283bd259295efc00dc2916dad30"
 dependencies = [
  "fixedbitset",
- "fxhash",
  "indexmap",
 ]
 
