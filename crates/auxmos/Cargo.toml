@@ -49,8 +49,3 @@ petgraph = "0.6.2"
 [dependencies.tinyvec]
 version = "1.5.1"
 features = ["rustc_1_55", "alloc"]
-
-[profile.release]
-lto = 'thin'
-debug = true
-panic = 'abort'
