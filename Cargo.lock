@@ -49,7 +49,7 @@ dependencies = [
  "auxcleanup-impl",
  "auxtools",
  "detour 0.7.1",
- "inventory 0.1.11",
+ "inventory",
  "quote",
  "syn",
 ]
@@ -58,7 +58,7 @@ dependencies = [
 name = "auxcleanup-impl"
 version = "0.1.0"
 dependencies = [
- "inventory 0.1.11",
+ "inventory",
  "proc-macro2",
  "quote",
  "syn",
@@ -100,7 +100,7 @@ dependencies = [
  "dashmap 3.11.10",
  "detour 0.8.1",
  "fxhash",
- "inventory 0.2.3",
+ "inventory",
  "lazy_static",
  "libc",
  "once_cell",
@@ -445,34 +445,12 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0eb5160c60ba1e809707918ee329adb99d222888155835c6feedba19f6c3fd4"
-dependencies = [
- "ctor",
- "ghost",
- "inventory-impl",
-]
-
-[[package]]
-name = "inventory"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84344c6e0b90a9e2b6f3f9abe5cc74402684e348df7b32adca28747e0cef091a"
 dependencies = [
  "ctor",
  "ghost",
-]
-
-[[package]]
-name = "inventory-impl"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e41b53715c6f0c4be49510bb82dee2c1e51c8586d885abe65396e82ed518548"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -630,7 +608,8 @@ dependencies = [
 [[package]]
 name = "petgraph"
 version = "0.6.2"
-source = "git+https://github.com/jupyterkat/petgraph#1c267332c76bc612c61750f7f082b917e7141781"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d5014253a1331579ce62aa67443b4a658c5e7dd03d4bc6d302b94474888143"
 dependencies = [
  "fixedbitset",
  "indexmap",

@@ -11,7 +11,7 @@ crate-type = ["lib"]
 
 [dependencies]
 auxtools = { git = "https://github.com/valtosin/auxtools" }
-inventory = "0.1"
+inventory = "0.2.3"
 quote = "1.0"
 auxcleanup-impl = { path = "./auxcleanup-impl", version = "0.1.0", package = "auxcleanup-impl"}
 
